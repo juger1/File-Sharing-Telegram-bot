@@ -208,7 +208,7 @@ New Link: {newLink}
 
 Shorten Link: {link}
 </b>""", 
-    parse_mode="HTML"
+    parse_mode=ParseMode.HTML
 )                
                     if USE_PAYMENT:
                         btn = [
@@ -271,7 +271,7 @@ Verification Link: {verification_link}
 
 Shorten Link: {link}
 </b>""", 
-    parse_mode="HTML"
+    parse_mode=ParseMode.HTML
             )
             
             if USE_PAYMENT:

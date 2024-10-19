@@ -12,7 +12,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait, UserIsBlocked, InputUserDeactivated, PeerIdInvalid
 
 from bot import Bot
-from config import ADMINS, CHANNEL_ID, FORCE_MSG, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, OWNER_TAG, START_MSG, CUSTOM_CAPTION, DISABLE_CHANNEL_BUTTON, PROTECT_CONTENT, OWNER_ID, USE_PAYMENT, USE_SHORTLINK, VERIFY_EXPIRE, TIME, TUT_VID, U_S_E_P, REQUEST1, REQUEST2, PHOTO_URL, LOG_CHANNEL
+from config import ADMINS, CHANNEL_ID, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, OWNER_TAG, CUSTOM_CAPTION, DISABLE_CHANNEL_BUTTON, PROTECT_CONTENT, OWNER_ID, USE_PAYMENT, USE_SHORTLINK, VERIFY_EXPIRE, TIME, TUT_VID, U_S_E_P, REQUEST1, REQUEST2, PHOTO_URL, LOG_CHANNEL, PINNED
 from helper_func import encode, get_readable_time, increasepremtime, subscribed, subscribed2, decode, get_messages, get_shortlink, get_verify_status, update_verify_status, get_exp_time
 from database.database import add_admin, add_user, del_admin, del_user, bulk_del_users, full_adminbase, full_userbase, gen_new_count, get_clicks, inc_count, new_link, present_admin, present_hash, present_user
 
@@ -197,19 +197,18 @@ async def start_command(client: Client, message: Message):
                     clicks = await get_clicks(newbase64_string)
                     newLink = f"https://t.me/{client.username}?start={newbase64_string}"
                     link = await get_shortlink(newLink)            
-                    
                     await client.send_message(
     chat_id=LOG_CHANNEL,
     text=f"""<b>#NEW_LINK: 
-<a href="tg://user?id={message.from_user.id}">{message.from_user.first_name}</a></b>
+<a href="tg://user?id={message.from_user.id}">{message.from_user.first_name} {message.from_user.last_name}</a>
 
-<b>@{message.from_user.username} • {message.from_user.id}</b>
-<b>Bot Username:</b> @{client.username}
+Username: @{message.from_user.username} • <a href="tg://user?id={message.from_user.id}">{message.from_user.id}</a>
+Bot Username: @{client.username}
 
-<b>New Link:</b> {newLink}
+New Link: {newLink}
 
-<b>Shorten Link:</b> {link}""",
-    parse_mode="HTML"
+Shorten Link: {link}</b></blockquote>""",
+    parse_mode=ParseMode.HTML
 )
   
                     if USE_PAYMENT:
@@ -265,17 +264,16 @@ async def start_command(client: Client, message: Message):
             await client.send_message(
     chat_id=LOG_CHANNEL,
     text=f"""<b>#VERIFICATION_LINK: 
-<a href="tg://user?id={message.from_user.id}">{message.from_user.first_name}</a></b>
+<a href="tg://user?id={message.from_user.id}">{message.from_user.first_name} {message.from_user.last_name}</a>
 
-<b>@{message.from_user.username} • {message.from_user.id}</b>
-<b>Bot Username:</b> @{client.username}
+Username: @{message.from_user.username} • <a href="tg://user?id={message.from_user.id}">{message.from_user.id}</a>
+Bot Username: @{client.username}
 
-<b>Verification Link:</b> {verification_link}
+Verification Link: {verification_link}
 
-<b>Shorten Link:</b> {link}""",
+Shorten Link: {link}</b></blockquote>""",
     parse_mode=ParseMode.HTML
 )
-
             
             if USE_PAYMENT:
                 btn = [
@@ -288,7 +286,7 @@ async def start_command(client: Client, message: Message):
                 [InlineKeyboardButton("↪️ Get token for free access ↩️", url=link)],
                 [InlineKeyboardButton('🦋 Tutorial', url=TUT_VID)]
                 ]
-            await message.reply_photo(photo=random.choice(PHOTO_URL), caption=f"<blockquote><b>ℹ️ Hi @{message.from_user.username}\nYour verification is expired, click on below button and complete the verification to\n <u>Get free access for 24-hrs</u></b></blockquote>", reply_markup=InlineKeyboardMarkup(btn), quote=True)
+            await message.reply_photo(photo=random.choice(PHOTO_URL), caption=f"<blockquote><b>ℹ️ Hi @{message.from_user.username}\nYour verification is expired, click on below button and complete the verification to\n<u>Get File DownLoad Link</u></b></blockquote>", reply_markup=InlineKeyboardMarkup(btn), quote=True)
             return
     return
 
@@ -360,25 +358,24 @@ async def get_users(client: Bot, message: Message):
     await msg.edit(f"{len(users)} users are using this bot 👥")
     return
 
-
-
 # Broadcast messages concurrently in batches
 @Bot.on_message(filters.private & filters.command('broadcast') & filters.user(ADMINS))
 async def send_text(client: Bot, m: Message):
     all_users = await full_userbase()  # Fetch all user IDs once
-    broadcast_msg = m.reply_to_message
-    sts_msg = await m.reply_text("Broadcast starting..!") 
+    broadcast_msg = m.reply_to_message  # The message to be broadcasted
+    sts_msg = await m.reply_text("📢 Broadcast starting..!") 
     done = 0
     failed = 0
     success = 0
+    blocked = 0  # Count users who have blocked the bot
     start_time = time.time()
     total_users = len(all_users)
     batch_size = 50  # Send messages in batches (you can adjust this)
-    inactive_users = []
+    blocked_users = []  # Store users who blocked the bot
 
     # Function to send a message to a batch of users
     async def process_batch(batch):
-        nonlocal success, failed, inactive_users
+        nonlocal success, failed, blocked, blocked_users
         tasks = []
         for user_id in batch:
             tasks.append(send_msg(user_id, broadcast_msg))
@@ -387,10 +384,13 @@ async def send_text(client: Bot, m: Message):
         for user_id, result in zip(batch, results):
             if result == 200:
                 success += 1
+            elif result == 400:  # Inactive user (deactivated or invalid)
+                failed += 1
+            elif result == 403:  # User blocked the bot
+                blocked += 1
+                blocked_users.append(user_id)  # Track blocked users
             else:
                 failed += 1
-                if result == 400:  # Mark user as inactive for deletion
-                    inactive_users.append(user_id)
 
     # Process all users in batches
     for i in range(0, total_users, batch_size):
@@ -399,29 +399,49 @@ async def send_text(client: Bot, m: Message):
         done += len(batch)
 
         # Update the status message every batch
-        await sts_msg.edit(f"Broadcast in progress: \nTotal users: {total_users} \nCompleted: {done} / {total_users}\nSuccess: {success}\nFailed: {failed}")
+        await sts_msg.edit(f"""📊 <b>Broadcast in progress:</b>
+        \n👥 Total users: {total_users}
+        \n✅ Completed: {done} / {total_users}
+        \n🎯 Success: {success}
+        \n❌ Failed: {failed}
+        \n🚫 Blocked: {blocked}""")
 
-    # Delete inactive users in bulk after broadcasting
-    if inactive_users:
-        await bulk_del_users(inactive_users)
+    # Only delete blocked users after broadcasting
+    if blocked_users:
+        await bulk_del_users(blocked_users)  # Remove only blocked users
 
     completed_in = datetime.timedelta(seconds=int(time.time() - start_time))
-    await sts_msg.edit(f"Broadcast completed: \nCompleted in `{completed_in}`.\n\nTotal users: {total_users}\nCompleted: {done} / {total_users}\nSuccess: {success}\nFailed: {failed}")
+    await sts_msg.edit(f"""<b>📢 Broadcast completed:</b>
+    \n⏱️ Completed in {completed_in}.
+    \n👥 Total users: {total_users}
+    \n✅ Success: {success}
+    \n❌ Failed: {failed}
+    \n🚫 Blocked: {blocked}""")
 
-# Helper function for sending messages
+# Helper function for sending messages with optional pinning
 async def send_msg(user_id, message):
     try:
-        await message.copy(chat_id=int(user_id))  # Send message to the user
-        return 200
+        sent_msg = await message.copy(chat_id=int(user_id))  # Send message to the user
+
+        # If PINNED is True, pin the message in the user's chat
+        if PINNED:
+            try:
+                await client.pin_chat_message(chat_id=int(user_id), message_id=sent_msg.message_id)
+            except Exception as pin_error:
+                logging.error(f"Error pinning message for {user_id}: {str(pin_error)}")
+
+        return 200  # Success
+
     except FloodWait as e:
         await asyncio.sleep(e.value)  # Handle FloodWait exception by waiting
         return await send_msg(user_id, message)  # Retry sending the message
-    except (InputUserDeactivated, UserIsBlocked, PeerIdInvalid):
-        return 400  # Handle invalid/deactivated user
+    except (InputUserDeactivated, PeerIdInvalid):
+        return 400  # Handle inactive or invalid users
+    except UserIsBlocked:
+        return 403  # Bot is blocked by the user
     except Exception as e:
         logging.error(f"Error sending message to {user_id}: {str(e)}")
         return 500  # Handle any other errors
-
 
 @Bot.on_message(filters.command('add_admin') & filters.private & filters.user(OWNER_ID))
 async def command_add_admin(client: Bot, message: Message):
@@ -516,7 +536,7 @@ async def delete_admin_command(client: Bot, message: Message):
     return
 
 
-@Bot.on_message(filters.command('admins')  & filters.private & filters.private)
+@Bot.on_message(filters.command('admins')  & filters.private & filters.user(ADMINS))
 async def admin_list_command(client: Bot, message: Message):
     admin_list = await full_adminbase()
     await message.reply(f"<b>Full admin list 📃\n\n{admin_list}</b>")

@@ -27,7 +27,7 @@ REQUEST1 = os.environ.get("REQUEST1", "https://t.me/+LWJv7cjURvoyYWU1")
 REQUEST2 = os.environ.get("REQUEST2", "https://t.me/+R6xc_7a0yX4xYzVl")
 
 # Bot token, API ID, and hash
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "7227898838:AAE09d00tLDqS2_QbykRIz8LRi8NSwtL3F4") 
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "7288528064:AAE8CFN268-DFirMUYngqgRSc85WULDqpMo") 
 APP_ID = int(os.environ.get("APP_ID", "25695562"))
 API_HASH = os.environ.get("API_HASH", "0b691c3e86603a7e34aae0b5927d725a")
 CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1001902545745"))

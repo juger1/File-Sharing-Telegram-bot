@@ -334,6 +334,86 @@ async def not_joined(client: Client, message: Message):
     )
 
 
+@Bot.on_message(filters.private & filters.command('broadcast') & filters.user(ADMINS))
+async def send_text(client: Bot, m: Message):
+    all_users = await full_userbase()
+    broadcast_msg = m.reply_to_message
+    sts_msg = await m.reply_text("📢 Broadcast starting..!")
+    done = 0
+    failed = 0
+    success = 0
+    blocked = 0
+    start_time = time.time()
+    total_users = len(all_users)
+    batch_size = 50
+    blocked_users = []
+
+    async def process_batch(batch):
+        nonlocal success, failed, blocked, blocked_users
+        tasks = []
+        for user_id in batch:
+            tasks.append(send_msg(client, user_id, broadcast_msg))  # Pass client correctly
+
+        results = await asyncio.gather(*tasks)
+        for user_id, result in zip(batch, results):
+            if result == 200:
+                success += 1
+            elif result == 400:
+                failed += 1
+            elif result == 403:
+                blocked += 1
+                blocked_users.append(user_id)
+            else:
+                failed += 1
+
+    for i in range(0, total_users, batch_size):
+        batch = all_users[i:i + batch_size]
+        await process_batch(batch)
+        done += len(batch)
+
+        await sts_msg.edit(f"""<blockquote><b>📊 Broadcast in progress:</b>
+👥 Total users: {total_users}
+✅ Completed: {done} / {total_users}
+🎯 Success: {success}
+❌ Failed: {failed}
+🚫 Blocked: {blocked}</b></blockquote>""")
+
+    if blocked_users:
+        await bulk_del_users(blocked_users)
+
+    completed_in = datetime.timedelta(seconds=int(time.time() - start_time))
+    await sts_msg.edit(f"""<blockquote><b>📢 Broadcast completed:</b>
+⏱️ Completed in {completed_in}.
+👥 Total users: {total_users}
+✅ Success: {success}
+❌ Failed: {failed}
+🚫 Blocked: {blocked}</b></blockquote>""")
+
+# Helper function for sending messages with optional pinning
+async def send_msg(client: Bot, user_id, message):
+    try:
+        sent_msg = await message.copy(chat_id=int(user_id))
+        if PINNED:  # Check if pinning is enabled
+            try:
+                await client.pin_chat_message(chat_id=int(user_id), message_id=sent_msg.message_id)
+            except Exception as pin_error:
+                logging.error(f"Error pinning message for {user_id}: {str(pin_error)}")
+        return 200
+
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        return await send_msg(client, user_id, message)
+    except (InputUserDeactivated, PeerIdInvalid):
+        return 400
+    except UserIsBlocked:
+        return 403
+    except Exception as e:
+        logging.error(f"Error sending message to {user_id}: {str(e)}")
+        return 500
+
+
+
+
 @Bot.on_message(filters.command('ch2l') & filters.private)
 async def gen_link_encoded(client: Bot, message: Message):
     try:
@@ -357,91 +437,6 @@ async def get_users(client: Bot, message: Message):
     users = await full_userbase()
     await msg.edit(f"{len(users)} users are using this bot 👥")
     return
-
-# Broadcast messages concurrently in batches
-@Bot.on_message(filters.private & filters.command('broadcast') & filters.user(ADMINS))
-async def send_text(client: Bot, m: Message):
-    all_users = await full_userbase()  # Fetch all user IDs once
-    broadcast_msg = m.reply_to_message  # The message to be broadcasted
-    sts_msg = await m.reply_text("📢 Broadcast starting..!") 
-    done = 0
-    failed = 0
-    success = 0
-    blocked = 0  # Count users who have blocked the bot
-    start_time = time.time()
-    total_users = len(all_users)
-    batch_size = 50  # Send messages in batches (you can adjust this)
-    blocked_users = []  # Store users who blocked the bot
-
-    # Function to send a message to a batch of users
-    async def process_batch(batch):
-        nonlocal success, failed, blocked, blocked_users
-        tasks = []
-        for user_id in batch:
-            tasks.append(send_msg(user_id, broadcast_msg))
-        
-        results = await asyncio.gather(*tasks)
-        for user_id, result in zip(batch, results):
-            if result == 200:
-                success += 1
-            elif result == 400:  # Inactive user (deactivated or invalid)
-                failed += 1
-            elif result == 403:  # User blocked the bot
-                blocked += 1
-                blocked_users.append(user_id)  # Track blocked users
-            else:
-                failed += 1
-
-    # Process all users in batches
-    for i in range(0, total_users, batch_size):
-        batch = all_users[i:i + batch_size]
-        await process_batch(batch)
-        done += len(batch)
-
-        # Update the status message every batch
-        await sts_msg.edit(f"""📊 <b>Broadcast in progress:</b>
-        \n👥 Total users: {total_users}
-        \n✅ Completed: {done} / {total_users}
-        \n🎯 Success: {success}
-        \n❌ Failed: {failed}
-        \n🚫 Blocked: {blocked}""")
-
-    # Only delete blocked users after broadcasting
-    if blocked_users:
-        await bulk_del_users(blocked_users)  # Remove only blocked users
-
-    completed_in = datetime.timedelta(seconds=int(time.time() - start_time))
-    await sts_msg.edit(f"""<b>📢 Broadcast completed:</b>
-    \n⏱️ Completed in {completed_in}.
-    \n👥 Total users: {total_users}
-    \n✅ Success: {success}
-    \n❌ Failed: {failed}
-    \n🚫 Blocked: {blocked}""")
-
-# Helper function for sending messages with optional pinning
-async def send_msg(user_id, message):
-    try:
-        sent_msg = await message.copy(chat_id=int(user_id))  # Send message to the user
-
-        # If PINNED is True, pin the message in the user's chat
-        if PINNED:
-            try:
-                await client.pin_chat_message(chat_id=int(user_id), message_id=sent_msg.message_id)
-            except Exception as pin_error:
-                logging.error(f"Error pinning message for {user_id}: {str(pin_error)}")
-
-        return 200  # Success
-
-    except FloodWait as e:
-        await asyncio.sleep(e.value)  # Handle FloodWait exception by waiting
-        return await send_msg(user_id, message)  # Retry sending the message
-    except (InputUserDeactivated, PeerIdInvalid):
-        return 400  # Handle inactive or invalid users
-    except UserIsBlocked:
-        return 403  # Bot is blocked by the user
-    except Exception as e:
-        logging.error(f"Error sending message to {user_id}: {str(e)}")
-        return 500  # Handle any other errors
 
 @Bot.on_message(filters.command('add_admin') & filters.private & filters.user(OWNER_ID))
 async def command_add_admin(client: Bot, message: Message):
